@@ -5,7 +5,7 @@ import SwiftData
 struct CozyFocusApp: App {
     private let container: ModelContainer = {
         do {
-            return try ModelContainer(for: FocusSession.self, InventoryEntry.self)
+            return try ModelContainer(for: FocusSession.self, InventoryEntry.self, CoinLedgerEntry.self)
         } catch {
             fatalError("Could not create Cozy Focus' local library: \(error)")
         }

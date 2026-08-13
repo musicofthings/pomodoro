@@ -98,3 +98,18 @@ final class InventoryEntry {
         self.acquiredAt = acquiredAt
     }
 }
+
+@Model
+final class CoinLedgerEntry {
+    @Attribute(.unique) var id: UUID
+    var createdAt: Date
+    var amount: Int
+    var reason: String
+
+    init(id: UUID = UUID(), createdAt: Date = .now, amount: Int, reason: String) {
+        self.id = id
+        self.createdAt = createdAt
+        self.amount = amount
+        self.reason = reason
+    }
+}

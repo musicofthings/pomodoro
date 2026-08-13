@@ -7,6 +7,7 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Query(sort: \FocusSession.completedAt, order: .reverse) private var sessions: [FocusSession]
     @Query private var inventory: [InventoryEntry]
+    @Query private var coinLedger: [CoinLedgerEntry]
     @StateObject private var profile = ProfileStore()
     @StateObject private var timer = FocusTimer()
     @StateObject private var ambient = AmbientAudioPlayer()
@@ -24,6 +25,12 @@ struct ContentView: View {
     }
     private var totalMinutes: Int {
         Int(sessions.reduce(0) { $0 + $1.duration } / 60)
+    }
+    private var todayMinutes: Int {
+        Int(completedToday.reduce(0) { $0 + $1.duration } / 60)
+    }
+    private var coinBalance: Int {
+        coinLedger.reduce(0) { $0 + $1.amount }
     }
 
     var body: some View {
@@ -48,6 +55,11 @@ struct ContentView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { timer.tick(onComplete: finishSession) }
         }
+        .task {
+            profile.migrateLegacyCoinsIfNeeded(hasLedgerEntries: !coinLedger.isEmpty, context: modelContext)
+            screenTime.reconcile(activeUntil: timer.scheduledEndDate)
+            timer.tick(onComplete: finishSession)
+        }
     }
 
     private var focusTab: some View {
@@ -58,7 +70,7 @@ struct ContentView: View {
                     HStack {
                         Text(greeting).font(.title2.bold())
                         Spacer()
-                        Label("\(profile.coins)", systemImage: "circle.inset.filled")
+                        Label("\(coinBalance)", systemImage: "circle.inset.filled")
                             .font(.subheadline.weight(.bold))
                             .foregroundStyle(.orange)
                             .padding(.horizontal, 10).padding(.vertical, 7)
@@ -159,7 +171,7 @@ struct ContentView: View {
                             VStack(alignment: .leading) { Text(cosmetic.name).fontWeight(.semibold); Text(owned ? "Yours to wear" : "\(cosmetic.price) cozy coins").font(.caption).foregroundStyle(.secondary) }
                             Spacer()
                             if owned { Button(profile.equippedCosmetic == cosmetic ? "Wearing" : "Wear") { profile.equippedCosmetic = cosmetic }.buttonStyle(.bordered) }
-                            else { Button("Unlock") { profile.purchase(cosmetic, context: modelContext) }.buttonStyle(.borderedProminent).tint(.orange).disabled(profile.coins < cosmetic.price) }
+                            else { Button("Unlock") { profile.purchase(cosmetic, balance: coinBalance, context: modelContext) }.buttonStyle(.borderedProminent).tint(.orange).disabled(coinBalance < cosmetic.price) }
                         }
                     }
                 }
@@ -222,14 +234,15 @@ struct ContentView: View {
 
     private func toggleFocus() {
         if timer.isRunning {
-            timer.pause()
+            timer.pause(onComplete: finishSession)
             ambient.stop()
             screenTime.endShielding()
         } else {
             timer.start()
             ambient.play()
-            if !screenTime.selection.applicationTokens.isEmpty || !screenTime.selection.categoryTokens.isEmpty {
-                screenTime.beginShielding()
+            if let endDate = timer.scheduledEndDate,
+               !screenTime.selection.applicationTokens.isEmpty || !screenTime.selection.categoryTokens.isEmpty {
+                screenTime.beginShielding(until: endDate)
             }
         }
     }
@@ -297,24 +310,26 @@ struct ContentView: View {
     private func finishSession() {
         ambient.stop()
         screenTime.endShielding()
-        completionBell.play()
         let session = FocusSession(duration: timer.sessionDuration, companion: profile.selectedCompanion)
+        let reward = CoinLedgerEntry(amount: session.coinsEarned, reason: "Completed focus session")
         modelContext.insert(session)
+        modelContext.insert(reward)
 
         do {
             try modelContext.save()
         } catch {
             modelContext.delete(session)
+            modelContext.delete(reward)
             return
         }
 
-        profile.earn(session.coinsEarned)
+        completionBell.play()
         withAnimation { completionMessage = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { withAnimation { completionMessage = false } }
     }
 
     private func createShareCard() {
-        let renderer = ImageRenderer(content: ShareCard(companion: profile.selectedCompanion, cosmetic: profile.equippedCosmetic, completedSessions: sessions.count, totalMinutes: totalMinutes))
+        let renderer = ImageRenderer(content: ShareCard(companion: profile.selectedCompanion, cosmetic: profile.equippedCosmetic, completedSessions: completedToday.count, totalMinutes: todayMinutes))
         renderer.scale = 1
         shareImage = renderer.uiImage
         showShareSheet = shareImage != nil

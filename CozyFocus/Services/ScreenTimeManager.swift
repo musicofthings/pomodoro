@@ -1,18 +1,28 @@
 import Foundation
 import FamilyControls
 import ManagedSettings
+import DeviceActivity
 
 @MainActor
 final class ScreenTimeManager: ObservableObject {
+    static let storeName = ManagedSettingsStore.Name("cozyFocus")
+    static let activityName = DeviceActivityName("cozyFocusSession")
+
     @Published var selection = FamilyActivitySelection()
     @Published private(set) var isShielding = false
     @Published private(set) var statusText = "Not enabled"
-    private let managedSettings = ManagedSettingsStore()
+    private let managedSettings = ManagedSettingsStore(named: storeName)
+    private let activityCenter = DeviceActivityCenter()
 
     init() {
-        // A focus timer only exists while this app process is alive. Clear settings
-        // from an interrupted prior run so a force-quit cannot leave apps shielded.
-        managedSettings.clearAllSettings()
+        let hasApplications = managedSettings.shield.applications?.isEmpty == false
+        let hasCategories: Bool
+        switch managedSettings.shield.applicationCategories {
+        case .specific(let categories, except: _): hasCategories = !categories.isEmpty
+        default: hasCategories = false
+        }
+        isShielding = hasApplications || hasCategories
+        statusText = isShielding ? "Distractions are paused for this focus sprint" : "Not enabled"
     }
 
     func requestAccess() async {
@@ -26,7 +36,7 @@ final class ScreenTimeManager: ObservableObject {
         }
     }
 
-    func beginShielding() {
+    func beginShielding(until endDate: Date) {
         guard AuthorizationCenter.shared.authorizationStatus == .approved else {
             statusText = "Allow Screen Time access before shielding distractions"
             return
@@ -35,6 +45,37 @@ final class ScreenTimeManager: ObservableObject {
             statusText = "Choose at least one app or category"
             return
         }
+        let startDate = Date.now
+        guard endDate > startDate else {
+            statusText = "This focus sprint has already ended"
+            return
+        }
+
+        let calendar = Calendar.current
+        let components: Set<Calendar.Component> = [.year, .month, .day, .hour, .minute, .second]
+        let monitoringEndDate = startDate.addingTimeInterval(
+            max(15 * 60, endDate.timeIntervalSince(startDate))
+        )
+        let warningMinutes = Int(
+            (monitoringEndDate.timeIntervalSince(endDate) / 60).rounded()
+        )
+        let schedule = DeviceActivitySchedule(
+            intervalStart: calendar.dateComponents(components, from: startDate),
+            intervalEnd: calendar.dateComponents(components, from: monitoringEndDate),
+            repeats: false,
+            warningTime: warningMinutes > 0 ? DateComponents(minute: warningMinutes) : nil
+        )
+
+        do {
+            activityCenter.stopMonitoring([Self.activityName])
+            try activityCenter.startMonitoring(Self.activityName, during: schedule)
+        } catch {
+            managedSettings.clearAllSettings()
+            isShielding = false
+            statusText = "Could not schedule distraction shielding"
+            return
+        }
+
         managedSettings.shield.applications = selection.applicationTokens
         managedSettings.shield.applicationCategories = .specific(selection.categoryTokens)
         isShielding = true
@@ -42,8 +83,28 @@ final class ScreenTimeManager: ObservableObject {
     }
 
     func endShielding() {
+        if AuthorizationCenter.shared.authorizationStatus == .approved {
+            activityCenter.stopMonitoring([Self.activityName])
+        }
         managedSettings.clearAllSettings()
         isShielding = false
         statusText = "Not enabled"
+    }
+
+
+    func reconcile(activeUntil endDate: Date?) {
+        guard let endDate, endDate > .now else {
+            endShielding()
+            return
+        }
+
+        let hasApplications = managedSettings.shield.applications?.isEmpty == false
+        let hasCategories: Bool
+        switch managedSettings.shield.applicationCategories {
+        case .specific(let categories, except: _): hasCategories = !categories.isEmpty
+        default: hasCategories = false
+        }
+        isShielding = hasApplications || hasCategories
+        statusText = isShielding ? "Distractions are paused for this focus sprint" : "Not enabled"
     }
 }

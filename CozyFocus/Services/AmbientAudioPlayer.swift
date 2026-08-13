@@ -115,10 +115,13 @@ final class AnimalSoundPlayer: ObservableObject {
     private let playerNode = AVAudioPlayerNode()
     private var hasAttachedPlayer = false
     private var activeBuffer: AVAudioPCMBuffer?
+    private var playbackGeneration = 0
 
     func playSelection(for companion: Companion) {
         let format = engine.mainMixerNode.outputFormat(forBus: 0)
         guard let buffer = makeGreeting(format: format, companion: companion) else { return }
+        playbackGeneration += 1
+        let generation = playbackGeneration
         activeBuffer = buffer
         if !hasAttachedPlayer {
             engine.attach(playerNode)
@@ -128,13 +131,25 @@ final class AnimalSoundPlayer: ObservableObject {
         do {
             try AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default)
             try AVAudioSession.sharedInstance().setActive(true)
-            try engine.start()
             playerNode.stop()
-            playerNode.scheduleBuffer(buffer, at: nil, options: [])
+            if !engine.isRunning { try engine.start() }
+            playerNode.scheduleBuffer(buffer, at: nil, options: [], completionCallbackType: .dataPlayedBack) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.finishGreeting(generation: generation)
+                }
+            }
             playerNode.play()
         } catch {
-            activeBuffer = nil
+            finishGreeting(generation: generation)
         }
+    }
+
+    private func finishGreeting(generation: Int) {
+        guard playbackGeneration == generation else { return }
+        playerNode.stop()
+        engine.stop()
+        activeBuffer = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     private func makeGreeting(format: AVAudioFormat, companion: Companion) -> AVAudioPCMBuffer? {

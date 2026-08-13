@@ -5,16 +5,25 @@ import DeviceActivity
 
 @MainActor
 final class ScreenTimeManager: ObservableObject {
-    static let storeName = ManagedSettingsStore.Name("cozyFocus")
+    static let storeName = ManagedSettingsStore.Name("group.com.cozyfocus.app")
     static let activityName = DeviceActivityName("cozyFocusSession")
 
-    @Published var selection = FamilyActivitySelection()
+    private static let selectionKey = "screenTime.selection"
+
+    @Published var selection = FamilyActivitySelection() {
+        didSet { saveSelection() }
+    }
     @Published private(set) var isShielding = false
     @Published private(set) var statusText = "Not enabled"
     private let managedSettings = ManagedSettingsStore(named: storeName)
     private let activityCenter = DeviceActivityCenter()
 
     init() {
+        if let data = UserDefaults.standard.data(forKey: Self.selectionKey),
+           let decoded = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data) {
+            self.selection = decoded
+        }
+
         let hasApplications = managedSettings.shield.applications?.isEmpty == false
         let hasCategories: Bool
         switch managedSettings.shield.applicationCategories {
@@ -23,6 +32,12 @@ final class ScreenTimeManager: ObservableObject {
         }
         isShielding = hasApplications || hasCategories
         statusText = isShielding ? "Distractions are paused for this focus sprint" : "Not enabled"
+    }
+
+    private func saveSelection() {
+        if let data = try? JSONEncoder().encode(selection) {
+            UserDefaults.standard.set(data, forKey: Self.selectionKey)
+        }
     }
 
     func requestAccess() async {

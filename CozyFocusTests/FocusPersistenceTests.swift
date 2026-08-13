@@ -85,4 +85,34 @@ final class FocusPersistenceTests: XCTestCase {
         XCTAssertEqual(inventory.map(\.cosmeticRaw), [Cosmetic.sunHat.rawValue])
         XCTAssertEqual(ledger.reduce(0) { $0 + $1.amount }, 0)
     }
+
+    @MainActor
+    func testExpiredTimerRelaunchState() throws {
+        let suiteName = "FocusTimerExpiredTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var currentDate = Date(timeIntervalSinceReferenceDate: 3_000_000)
+        let timer = FocusTimer(
+            defaults: defaults,
+            now: { currentDate },
+            schedulesNotifications: false
+        )
+        timer.chooseDuration(at: 0)
+        timer.start()
+
+        // Fast forward 120 seconds (past 60s duration)
+        currentDate.addTimeInterval(120)
+
+        let restored = FocusTimer(
+            defaults: defaults,
+            now: { currentDate },
+            schedulesNotifications: false
+        )
+
+        // Verify that expired timer initializes directly in complete, non-running state
+        XCTAssertFalse(restored.isRunning)
+        XCTAssertTrue(restored.isComplete)
+        XCTAssertEqual(restored.remaining, 0)
+    }
 }

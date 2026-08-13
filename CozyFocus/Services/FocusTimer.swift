@@ -14,6 +14,7 @@ final class FocusTimer: ObservableObject {
 
     private var endDate: Date?
     private var lastPulseMinute = -1
+    private var notificationTask: Task<Void, Never>?
     private let defaults: UserDefaults
     private let now: () -> Date
     private let schedulesNotifications: Bool
@@ -40,10 +41,18 @@ final class FocusTimer: ObservableObject {
         durationIndex = boundedIndex
 
         if let storedEndDate = defaults.object(forKey: Keys.endDate) as? Date {
-            endDate = storedEndDate
-            remaining = max(0, storedEndDate.timeIntervalSince(now()))
-            isRunning = true
-            isComplete = false
+            let secondsRemaining = storedEndDate.timeIntervalSince(now())
+            if secondsRemaining > 0 {
+                endDate = storedEndDate
+                remaining = secondsRemaining
+                isRunning = true
+                isComplete = false
+            } else {
+                endDate = nil
+                remaining = 0
+                isRunning = false
+                isComplete = true
+            }
         } else {
             remaining = defaults.object(forKey: Keys.pausedRemaining) as? TimeInterval
                 ?? Self.durationOptions[boundedIndex]
@@ -130,7 +139,8 @@ final class FocusTimer: ObservableObject {
 
     private func scheduleCompletionNotification(at date: Date) {
         guard schedulesNotifications else { return }
-        Task {
+        notificationTask?.cancel()
+        notificationTask = Task {
             let center = UNUserNotificationCenter.current()
             let settings = await center.notificationSettings()
             var isAuthorized = settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional
@@ -139,7 +149,7 @@ final class FocusTimer: ObservableObject {
                 isAuthorized = (try? await center.requestAuthorization(options: [.alert, .sound])) == true
             }
 
-            guard isAuthorized, isRunning, endDate == date else { return }
+            guard !Task.isCancelled, isAuthorized, isRunning, endDate == date else { return }
             let content = UNMutableNotificationContent()
             content.title = "Your cozy focus is complete"
             content.body = "Take a gentle breath and come back when you're ready."
@@ -159,6 +169,8 @@ final class FocusTimer: ObservableObject {
 
     private func cancelCompletionNotification() {
         guard schedulesNotifications else { return }
+        notificationTask?.cancel()
+        notificationTask = nil
         UNUserNotificationCenter.current().removePendingNotificationRequests(
             withIdentifiers: [Self.completionNotificationID]
         )

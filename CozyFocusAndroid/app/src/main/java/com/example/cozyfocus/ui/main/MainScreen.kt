@@ -18,12 +18,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
@@ -35,20 +41,27 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.cozyfocus.audio.AmbientSound
+import com.example.cozyfocus.data.db.FocusSessionEntity
 import com.example.cozyfocus.model.CompanionAnimal
 import com.example.cozyfocus.model.Cosmetic
 import com.example.cozyfocus.ui.components.CompanionStage
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun MainScreen(
@@ -58,26 +71,45 @@ fun MainScreen(
     val sessions by viewModel.repository.sessions.collectAsState(initial = emptyList())
     val inventory by viewModel.inventory.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
+    val context = LocalContext.current
+
+    val completedToday = remember(sessions) {
+        val calendar = Calendar.getInstance()
+        val todayYear = calendar.get(Calendar.YEAR)
+        val todayDay = calendar.get(Calendar.DAY_OF_YEAR)
+        sessions.filter { session ->
+            calendar.timeInMillis = session.completedAt
+            calendar.get(Calendar.YEAR) == todayYear && calendar.get(Calendar.DAY_OF_YEAR) == todayDay
+        }
+    }
+
+    val totalMinutes = remember(sessions) {
+        (sessions.sumOf { it.durationSeconds } / 60).toInt()
+    }
+
+    val todayMinutes = remember(completedToday) {
+        (completedToday.sumOf { it.durationSeconds } / 60).toInt()
+    }
 
     Scaffold(
         bottomBar = {
-            NavigationBar(containerColor = Color.White.copy(alpha = 0.9f)) {
+            NavigationBar(containerColor = Color.White.copy(alpha = 0.95f)) {
                 NavigationBarItem(
                     selected = selectedTab == 0,
                     onClick = { selectedTab = 0 },
-                    icon = { Text("🏠", fontSize = 20.sp) },
+                    icon = { Text("⏱️", fontSize = 20.sp) },
                     label = { Text("Focus") }
                 )
                 NavigationBarItem(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
-                    icon = { Text("🗓️", fontSize = 20.sp) },
+                    icon = { Text("📊", fontSize = 20.sp) },
                     label = { Text("Journey") }
                 )
                 NavigationBarItem(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
-                    icon = { Text("⭐", fontSize = 20.sp) },
+                    icon = { Text("🐾", fontSize = 20.sp) },
                     label = { Text("Den") }
                 )
             }
@@ -91,32 +123,51 @@ fun MainScreen(
         ) {
             when (selectedTab) {
                 0 -> FocusTabContent(uiState = uiState, viewModel = viewModel)
-                1 -> JourneyTabContent(sessionsCount = sessions.size, totalMinutes = (sessions.sumOf { it.durationSeconds } / 60).toInt())
+                1 -> JourneyTabContent(
+                    sessions = sessions,
+                    completedTodayCount = completedToday.size,
+                    totalMinutes = totalMinutes,
+                    onShare = {
+                        viewModel.shareJourneyCard(context, completedToday.size, todayMinutes)
+                    }
+                )
                 2 -> DenTabContent(
+                    selectedCompanion = uiState.selectedCompanion,
                     coinBalance = uiState.coinBalance,
                     equippedCosmetic = uiState.equippedCosmetic,
                     ownedCosmetics = inventory.map { it.cosmeticRaw },
+                    onSelectCompanion = { viewModel.selectCompanion(it) },
                     onPurchase = { viewModel.purchaseCosmetic(it) },
                     onEquip = { viewModel.equipCosmetic(it) }
                 )
             }
 
+            // Completion Toast matching iOS (+5 cozy coins — you did it)
             AnimatedVisibility(
                 visible = uiState.completionToastMessage != null,
                 enter = slideInVertically() + fadeIn(),
                 exit = slideOutVertically() + fadeOut(),
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 16.dp)
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp)
             ) {
                 Card(
                     shape = CircleShape,
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0))
+                    colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.92f)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
                 ) {
-                    Text(
-                        text = uiState.completionToastMessage ?: "",
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFFFF9800)
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("✨ ", fontSize = 16.sp)
+                        Text(
+                            text = uiState.completionToastMessage ?: "",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = Color(0xFFFF9800)
+                        )
+                    }
                 }
             }
         }
@@ -138,32 +189,37 @@ private fun FocusTabContent(
     val seconds = (uiState.remainingSeconds % 60).toInt()
     val timeText = String.format("%02d:%02d", minutes, seconds)
 
+    var soundMenuExpanded by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(horizontal = 18.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
     ) {
+        // Header Row
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(text = greeting, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text(text = greeting, fontSize = 22.sp, fontWeight = FontWeight.Bold)
             Box(
                 modifier = Modifier
-                    .background(Color(0xFFFFF3E0), CircleShape)
-                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                    .background(Color(0xFFFF9800).copy(alpha = 0.1f), CircleShape)
+                    .padding(horizontal = 14.dp, vertical = 7.dp)
             ) {
                 Text(
                     text = "🪙 ${uiState.coinBalance}",
                     fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
                     color = Color(0xFFFF9800)
                 )
             }
         }
 
+        // Companion Stage
         CompanionStage(
             selectedCompanion = uiState.selectedCompanion,
             equippedCosmetic = uiState.equippedCosmetic,
@@ -175,63 +231,72 @@ private fun FocusTabContent(
             }
         )
 
+        // Timer Display
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                text = if (uiState.isComplete) "Lovely work" else if (uiState.isRunning) "Focus gently" else "A ${(viewModel.currentSessionDuration / 60)}-minute moment",
+                text = if (uiState.isComplete) "Lovely work" else if (uiState.isRunning) "Focus gently" else "A ${viewModel.durationAdjective} moment",
                 fontSize = 14.sp,
                 color = Color.Gray,
                 fontWeight = FontWeight.SemiBold
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = timeText,
-                fontSize = 58.sp,
+                fontSize = 60.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace
             )
         }
 
+        // Action Buttons Row (Play/Pause + Red Destructive Stop)
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Button(
                 onClick = { viewModel.toggleTimer() },
-                modifier = Modifier.weight(1f).height(54.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(50.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF9800)),
-                shape = RoundedCornerShape(28.dp)
+                shape = RoundedCornerShape(25.dp)
             ) {
                 Text(
-                    text = if (uiState.isRunning) "⏸  Pause gently" else if (uiState.isComplete) "▶  Begin another focus" else "▶  Begin focus",
+                    text = viewModel.primaryButtonLabel,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
+                    fontSize = 15.sp
                 )
             }
-            Box(
-                modifier = Modifier
-                    .size(54.dp)
-                    .background(Color.White, CircleShape)
-                    .clickable { viewModel.stopTimer() },
-                contentAlignment = Alignment.Center
+            OutlinedButton(
+                onClick = { viewModel.stopTimer() },
+                enabled = viewModel.canStop,
+                modifier = Modifier.size(50.dp),
+                shape = CircleShape,
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = Color.Red
+                )
             ) {
-                Text(text = "↺", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                Text(text = "⏹", fontSize = 18.sp, color = if (viewModel.canStop) Color.Red else Color.Gray)
             }
         }
 
+        // Duration Picker Card
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White)
         ) {
-            Column(modifier = Modifier.padding(14.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = "Choose your time", fontWeight = FontWeight.SemiBold)
+                    Text(text = "Choose your time", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                     Text(
-                        text = "${(viewModel.currentSessionDuration / 60)} minutes",
+                        text = viewModel.durationText,
                         fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
                         color = Color(0xFFFF9800)
                     )
                 }
@@ -245,27 +310,187 @@ private fun FocusTabContent(
                         activeTrackColor = Color(0xFFFF9800)
                     )
                 )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = "1 min", fontSize = 12.sp, color = Color.Gray)
+                    Text(text = "60 min", fontSize = 12.sp, color = Color.Gray)
+                }
+            }
+        }
+
+        // Focus Controls Row (Ambient Sound Menu, Haptics Toggle, Distraction Shield Button)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Ambient Sound Menu Button
+            Box(modifier = Modifier.weight(1f)) {
+                OutlinedButton(
+                    onClick = { soundMenuExpanded = true },
+                    modifier = Modifier.fillMaxWidth().height(42.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = "${uiState.selectedSound.iconEmoji} ${uiState.selectedSound.label}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                DropdownMenu(
+                    expanded = soundMenuExpanded,
+                    onDismissRequest = { soundMenuExpanded = false }
+                ) {
+                    AmbientSound.entries.forEach { sound ->
+                        DropdownMenuItem(
+                            text = { Text("${sound.iconEmoji}  ${sound.label}") },
+                            onClick = {
+                                viewModel.selectAmbientSound(sound)
+                                soundMenuExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            // Haptics Toggle Button
+            OutlinedButton(
+                onClick = { viewModel.toggleHaptics() },
+                modifier = Modifier.height(42.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = if (uiState.hapticsEnabled) Color(0xFFFF9800).copy(alpha = 0.12f) else Color.Transparent
+                )
+            ) {
+                Text(text = if (uiState.hapticsEnabled) "📳 Haptics" else "🔇 Haptics", fontSize = 12.sp)
+            }
+
+            // Distraction Shield Button
+            OutlinedButton(
+                onClick = { viewModel.toggleDistractionShielding() },
+                modifier = Modifier.height(42.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = if (uiState.isShielding) Color(0xFFFF9800).copy(alpha = 0.15f) else Color.Transparent
+                )
+            ) {
+                Text(text = if (uiState.isShielding) "🛡️ Paused" else "🛡️ Shield", fontSize = 12.sp)
             }
         }
     }
 }
 
 @Composable
-private fun JourneyTabContent(sessionsCount: Int, totalMinutes: Int) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+private fun JourneyTabContent(
+    sessions: List<FocusSessionEntity>,
+    completedTodayCount: Int,
+    totalMinutes: Int,
+    onShare: () -> Unit
+) {
+    val dateFormat = remember { SimpleDateFormat("EEE, MMM d, HH:mm", Locale.getDefault()) }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text(text = "Your quiet progress", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White)) {
-            Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Focus sessions completed")
-                    Text("$sessionsCount", fontWeight = FontWeight.Bold)
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = "Journey", fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                OutlinedButton(onClick = onShare, shape = RoundedCornerShape(12.dp)) {
+                    Text(text = "📤 Share", fontWeight = FontWeight.Bold)
                 }
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Total time protected")
-                    Text("$totalMinutes minutes", fontWeight = FontWeight.Bold)
+            }
+        }
+
+        item {
+            Text(text = "Your quiet progress", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        }
+
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White)
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Focus sessions completed")
+                        Text("${sessions.size}", fontWeight = FontWeight.Bold)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Time protected")
+                        Text("$totalMinutes min", fontWeight = FontWeight.Bold)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Today")
+                        Text("$completedTodayCount sessions", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        item {
+            Text(text = "Recent moments", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        }
+
+        if (sessions.isEmpty()) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White)
+                ) {
+                    Text(
+                        text = "Your completed focus moments will rest here.",
+                        modifier = Modifier.padding(18.dp),
+                        color = Color.Gray
+                    )
+                }
+            }
+        } else {
+            items(sessions.take(12)) { session ->
+                val companion = CompanionAnimal.fromRaw(session.companionRaw)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(text = companion.symbol, fontSize = 28.sp)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(text = "A gentle focus session", fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    text = dateFormat.format(Date(session.completedAt)),
+                                    fontSize = 12.sp,
+                                    color = Color.Gray
+                                )
+                            }
+                        }
+                        Text(
+                            text = "+${session.coinsEarned}",
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFFF9800)
+                        )
+                    }
                 }
             }
         }
@@ -274,23 +499,75 @@ private fun JourneyTabContent(sessionsCount: Int, totalMinutes: Int) {
 
 @Composable
 private fun DenTabContent(
+    selectedCompanion: CompanionAnimal,
     coinBalance: Int,
     equippedCosmetic: Cosmetic?,
     ownedCosmetics: List<String>,
+    onSelectCompanion: (CompanionAnimal) -> Unit,
     onPurchase: (Cosmetic) -> Unit,
     onEquip: (Cosmetic) -> Unit
 ) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text(text = "Tiny treasures", fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Cosmetic.entries.forEach { cosmetic ->
+        item {
+            Text(text = "The Den", fontSize = 26.sp, fontWeight = FontWeight.Bold)
+        }
+
+        // Your Companion Section
+        item {
+            Text(text = "Your companion", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        }
+
+        items(CompanionAnimal.entries) { companion ->
+            val isSelected = companion == selectedCompanion
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelectCompanion(companion) },
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(text = companion.symbol, fontSize = 28.sp)
+                        Spacer(modifier = Modifier.width(14.dp))
+                        Text(text = companion.displayName, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+                    if (isSelected) {
+                        Text(text = "✓", fontWeight = FontWeight.Bold, color = Color(0xFFFF9800), fontSize = 18.sp)
+                    }
+                }
+            }
+        }
+
+        // Tiny Treasures Section
+        item {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(text = "Tiny treasures", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        }
+
+        items(Cosmetic.entries) { cosmetic ->
             val owned = ownedCosmetics.contains(cosmetic.id)
             val isEquipped = equippedCosmetic == cosmetic
-            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White)
+            ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {

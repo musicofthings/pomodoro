@@ -2,6 +2,7 @@ import Foundation
 import FamilyControls
 import ManagedSettings
 import DeviceActivity
+import Combine
 
 @MainActor
 final class ScreenTimeManager: ObservableObject {
@@ -17,6 +18,7 @@ final class ScreenTimeManager: ObservableObject {
     @Published private(set) var statusText = "Not enabled"
     private let managedSettings = ManagedSettingsStore(named: storeName)
     private let activityCenter = DeviceActivityCenter()
+    private var authorizationCancellable: AnyCancellable?
 
     init() {
         if let data = UserDefaults.standard.data(forKey: Self.selectionKey),
@@ -32,6 +34,15 @@ final class ScreenTimeManager: ObservableObject {
         }
         isShielding = hasApplications || hasCategories
         statusText = isShielding ? "Distractions are paused for this focus sprint" : "Not enabled"
+
+        authorizationCancellable = AuthorizationCenter.shared.$authorizationStatus
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                guard status == .denied else { return }
+                Task { @MainActor [weak self] in
+                    self?.endShielding(statusText: "Screen Time access was removed")
+                }
+            }
     }
 
     private func saveSelection() {
@@ -98,12 +109,14 @@ final class ScreenTimeManager: ObservableObject {
     }
 
     func endShielding() {
-        if AuthorizationCenter.shared.authorizationStatus == .approved {
-            activityCenter.stopMonitoring([Self.activityName])
-        }
+        endShielding(statusText: "Not enabled")
+    }
+
+    private func endShielding(statusText: String) {
+        activityCenter.stopMonitoring([Self.activityName])
         managedSettings.clearAllSettings()
         isShielding = false
-        statusText = "Not enabled"
+        self.statusText = statusText
     }
 
 

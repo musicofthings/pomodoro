@@ -1,4 +1,4 @@
-package com.example.cozyfocus
+package com.cozyfocus.app
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -8,9 +8,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
-import com.example.cozyfocus.theme.CozyFocusTheme
+import com.cozyfocus.app.theme.CozyFocusTheme
 
-import com.example.cozyfocus.ui.main.MainScreen
+import com.cozyfocus.app.ui.main.MainScreen
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {

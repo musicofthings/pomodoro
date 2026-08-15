@@ -1,4 +1,4 @@
-package com.example.cozyfocus.ui.components
+package com.cozyfocus.app.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -22,8 +22,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.cozyfocus.model.CompanionAnimal
-import com.example.cozyfocus.model.Cosmetic
+import com.cozyfocus.app.model.CompanionAnimal
+import com.cozyfocus.app.model.Cosmetic
 
 val TriangleShape = GenericShape { size, _ ->
     moveTo(size.width / 2f, 0f)

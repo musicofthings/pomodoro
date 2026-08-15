@@ -1,19 +1,25 @@
-package com.example.cozyfocus.ui.main
+package com.cozyfocus.app.ui.main
 
 import android.app.Application
-import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.cozyfocus.audio.AmbientAudioPlayer
-import com.example.cozyfocus.audio.AmbientSound
-import com.example.cozyfocus.audio.AnimalSoundSynthesizer
-import com.example.cozyfocus.audio.MeditationBellPlayer
-import com.example.cozyfocus.data.DataRepository
-import com.example.cozyfocus.model.CompanionAnimal
-import com.example.cozyfocus.model.Cosmetic
-import com.example.cozyfocus.services.DistractionShieldManager
-import com.example.cozyfocus.services.HapticsManager
-import com.example.cozyfocus.ui.components.ShareCardGenerator
+import com.cozyfocus.app.audio.AmbientAudioPlayer
+import com.cozyfocus.app.audio.AmbientSound
+import com.cozyfocus.app.audio.AnimalSoundSynthesizer
+import com.cozyfocus.app.audio.MeditationBellPlayer
+import com.cozyfocus.app.data.DataRepository
+import com.cozyfocus.app.data.preferences.TimerState
+import com.cozyfocus.app.model.CompanionAnimal
+import com.cozyfocus.app.model.Cosmetic
+import com.cozyfocus.app.notifications.CompletionNotificationManager
+import com.cozyfocus.app.services.FocusSettingsManager
+import com.cozyfocus.app.services.HapticsManager
+import com.cozyfocus.app.timer.CompletionAlarmScheduler
+import com.cozyfocus.app.timer.CompletionResult
+import com.cozyfocus.app.timer.FocusTimerMath
+import com.cozyfocus.app.timer.SessionCompletionCoordinator
+import com.cozyfocus.app.ui.components.ShareCardGenerator
+import java.util.UUID
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,7 +29,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlin.math.max
 
 data class MainUiState(
     val remainingSeconds: Long = 1500L,
@@ -35,8 +40,9 @@ data class MainUiState(
     val coinBalance: Int = 0,
     val hapticsEnabled: Boolean = true,
     val selectedSound: AmbientSound = AmbientSound.RAINFALL,
-    val isShielding: Boolean = false,
-    val shieldStatusText: String = "Not enabled",
+    val focusSettingsStatusText: String = "Use Android Focus or Do Not Disturb settings",
+    val completionAlertsEnabled: Boolean = false,
+    val notificationPermissionRequested: Boolean = false,
     val completionToastMessage: String? = null
 )
 
@@ -46,15 +52,29 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     private val ambientPlayer = AmbientAudioPlayer(application)
     private val meditationBell = MeditationBellPlayer(application)
     private val hapticsManager = HapticsManager(application)
-    private val shieldManager = DistractionShieldManager(application)
+    private val focusSettings = FocusSettingsManager(application)
+    private val alarmScheduler = CompletionAlarmScheduler(application)
+    private val notifications = CompletionNotificationManager(application)
+    private val completionCoordinator = SessionCompletionCoordinator(
+        context = application,
+        repository = repository,
+        scheduler = alarmScheduler,
+        notifications = notifications
+    )
 
-    val durationOptions = listOf(1, 2, 5, 10, 15, 25, 30, 35, 40, 45, 50, 55, 60).map { it * 60L }
+    val durationOptions = listOf(1, 2, 5, 10, 15, 25, 30, 35, 40, 45, 50, 55, 60)
+        .map { it * 60L }
 
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
 
     private var timerJob: Job? = null
+    private var completionJob: Job? = null
+    private var toastJob: Job? = null
     private var lastPulseMinute = -1
+    private var currentDeadlineTimestamp: Long? = null
+    private var latestTimerState = TimerState()
+    private var lastAnnouncedCompletionId: String? = null
 
     val coinLedger = repository.coinLedger.stateIn(
         scope = viewModelScope,
@@ -71,62 +91,12 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     init {
         viewModelScope.launch {
             repository.coinLedger.collect { entries ->
-                val balance = entries.sumOf { it.amount }
-                _uiState.update { it.copy(coinBalance = balance) }
+                _uiState.update { it.copy(coinBalance = entries.sumOf { entry -> entry.amount }) }
             }
         }
 
         viewModelScope.launch {
-            repository.timerState.collect { prefs ->
-                val companion = CompanionAnimal.fromRaw(prefs.selectedCompanion)
-                val cosmetic = Cosmetic.fromRaw(prefs.equippedCosmetic)
-                val sessionDuration = durationOptions.getOrElse(prefs.durationIndex) { 1500L }
-
-                val now = System.currentTimeMillis()
-                if (prefs.targetDeadlineTimestamp != null) {
-                    val secondsLeft = max(0L, (prefs.targetDeadlineTimestamp - now) / 1000)
-                    if (secondsLeft > 0) {
-                        _uiState.update {
-                            it.copy(
-                                remainingSeconds = secondsLeft,
-                                isRunning = true,
-                                isComplete = false,
-                                durationIndex = prefs.durationIndex,
-                                selectedCompanion = companion,
-                                equippedCosmetic = cosmetic,
-                                hapticsEnabled = prefs.hapticsEnabled
-                            )
-                        }
-                        ambientPlayer.play()
-                        startTicker()
-                    } else {
-                        _uiState.update {
-                            it.copy(
-                                remainingSeconds = 0L,
-                                isRunning = false,
-                                isComplete = true,
-                                durationIndex = prefs.durationIndex,
-                                selectedCompanion = companion,
-                                equippedCosmetic = cosmetic,
-                                hapticsEnabled = prefs.hapticsEnabled
-                            )
-                        }
-                    }
-                } else {
-                    val remaining = prefs.pausedRemainingSeconds ?: sessionDuration
-                    _uiState.update {
-                        it.copy(
-                            remainingSeconds = remaining,
-                            isRunning = false,
-                            isComplete = false,
-                            durationIndex = prefs.durationIndex,
-                            selectedCompanion = companion,
-                            equippedCosmetic = cosmetic,
-                            hapticsEnabled = prefs.hapticsEnabled
-                        )
-                    }
-                }
-            }
+            repository.timerState.collect(::applyPersistedTimerState)
         }
     }
 
@@ -134,74 +104,43 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         get() = durationOptions.getOrElse(uiState.value.durationIndex) { 1500L }
 
     val durationAdjective: String
-        get() = "${(currentSessionDuration / 60)}-minute"
+        get() = "${currentSessionDuration / 60}-minute"
 
     val durationText: String
         get() {
-            val mins = (currentSessionDuration / 60).toInt()
-            return "$mins minute${if (mins == 1) "" else "s"}"
+            val minutes = currentSessionDuration / 60
+            return "$minutes minute${if (minutes == 1L) "" else "s"}"
         }
 
     val primaryButtonLabel: String
-        get() {
-            val state = uiState.value
-            if (state.isRunning) return "Pause gently"
-            if (state.isComplete) return "Begin another $durationAdjective session"
-            if (state.remainingSeconds < currentSessionDuration) return "Resume focus"
-            return "Begin $durationAdjective focus"
+        get() = when {
+            uiState.value.isRunning -> "Pause gently"
+            uiState.value.isComplete -> "Begin another $durationAdjective session"
+            uiState.value.remainingSeconds < currentSessionDuration -> "Resume focus"
+            else -> "Begin $durationAdjective focus"
         }
 
     val canStop: Boolean
-        get() {
-            val state = uiState.value
-            return state.isRunning || state.remainingSeconds < currentSessionDuration || state.isComplete
+        get() = uiState.value.let {
+            it.isRunning || it.remainingSeconds < currentSessionDuration || it.isComplete
         }
 
     fun toggleTimer() {
-        if (uiState.value.isRunning) {
-            pauseTimer()
-        } else {
-            startTimer()
-        }
-    }
-
-    private fun startTimer() {
-        val remaining = if (uiState.value.isComplete) currentSessionDuration else uiState.value.remainingSeconds
-        val deadline = System.currentTimeMillis() + (remaining * 1000)
-        _uiState.update { it.copy(isRunning = true, isComplete = false, remainingSeconds = remaining) }
-        viewModelScope.launch { repository.preferences.startTimer(deadline) }
-        ambientPlayer.play()
-        startTicker()
-    }
-
-    private fun pauseTimer() {
-        timerJob?.cancel()
-        ambientPlayer.stop()
-        shieldManager.disableShielding()
-        val remaining = uiState.value.remainingSeconds
-        _uiState.update {
-            it.copy(
-                isRunning = false,
-                isShielding = false,
-                shieldStatusText = shieldManager.statusText
-            )
-        }
-        viewModelScope.launch { repository.preferences.pauseTimer(remaining) }
+        if (uiState.value.isRunning) pauseTimer() else startTimer()
     }
 
     fun stopTimer() {
         timerJob?.cancel()
+        timerJob = null
+        alarmScheduler.cancel()
         ambientPlayer.stop()
-        shieldManager.disableShielding()
         lastPulseMinute = -1
-        val duration = currentSessionDuration
+        currentDeadlineTimestamp = null
         _uiState.update {
             it.copy(
-                remainingSeconds = duration,
+                remainingSeconds = currentSessionDuration,
                 isRunning = false,
-                isComplete = false,
-                isShielding = false,
-                shieldStatusText = shieldManager.statusText
+                isComplete = false
             )
         }
         viewModelScope.launch { repository.preferences.resetTimer() }
@@ -212,7 +151,10 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         val boundedIndex = index.coerceIn(0, durationOptions.lastIndex)
         val duration = durationOptions[boundedIndex]
         lastPulseMinute = -1
-        _uiState.update { it.copy(durationIndex = boundedIndex, remainingSeconds = duration, isComplete = false) }
+        currentDeadlineTimestamp = null
+        _uiState.update {
+            it.copy(durationIndex = boundedIndex, remainingSeconds = duration, isComplete = false)
+        }
         viewModelScope.launch { repository.preferences.saveDurationIndex(boundedIndex) }
     }
 
@@ -227,31 +169,31 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
     fun selectAmbientSound(sound: AmbientSound) {
         ambientPlayer.setSelectedSound(sound)
         _uiState.update { it.copy(selectedSound = sound) }
+        viewModelScope.launch { repository.preferences.setSelectedSound(sound.id) }
     }
 
     fun toggleHaptics() {
-        val newEnabled = !uiState.value.hapticsEnabled
-        _uiState.update { it.copy(hapticsEnabled = newEnabled) }
-        viewModelScope.launch {
-            repository.preferences.setHapticsEnabled(newEnabled)
-        }
+        val enabled = !uiState.value.hapticsEnabled
+        _uiState.update { it.copy(hapticsEnabled = enabled) }
+        viewModelScope.launch { repository.preferences.setHapticsEnabled(enabled) }
     }
 
-    fun toggleDistractionShielding() {
-        shieldManager.toggleShielding()
+    fun openSystemFocusSettings() {
+        val opened = focusSettings.openSystemFocusSettings()
         _uiState.update {
             it.copy(
-                isShielding = shieldManager.isShielding,
-                shieldStatusText = shieldManager.statusText
+                focusSettingsStatusText = if (opened) {
+                    "Configure Focus or Do Not Disturb in Android settings"
+                } else {
+                    "Android focus settings are unavailable on this device"
+                }
             )
         }
     }
 
     fun purchaseCosmetic(cosmetic: Cosmetic) {
         viewModelScope.launch {
-            val balance = uiState.value.coinBalance
-            val success = repository.purchaseCosmetic(cosmetic.id, cosmetic.price, balance)
-            if (success) {
+            if (repository.purchaseCosmetic(cosmetic.id, cosmetic.price)) {
                 _uiState.update { it.copy(equippedCosmetic = cosmetic) }
             }
         }
@@ -264,67 +206,213 @@ class MainScreenViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    fun shareJourneyCard(context: Context, completedSessions: Int, totalMinutes: Int) {
-        val state = uiState.value
+    fun shareJourneyCard(context: android.content.Context, completedSessions: Int, totalMinutes: Int) {
         ShareCardGenerator.generateAndShare(
             context = context,
-            companion = state.selectedCompanion,
-            cosmetic = state.equippedCosmetic,
+            companion = uiState.value.selectedCompanion,
+            cosmetic = uiState.value.equippedCosmetic,
             completedSessions = completedSessions,
             totalMinutes = totalMinutes
         )
     }
 
-    private fun startTicker() {
+    fun markNotificationPermissionRequested() {
+        _uiState.update { it.copy(notificationPermissionRequested = true) }
+        viewModelScope.launch { repository.preferences.markNotificationPermissionRequested() }
+    }
+
+    fun refreshNotificationStatus() {
+        _uiState.update { it.copy(completionAlertsEnabled = notifications.canPostNotifications()) }
+    }
+
+    fun reconcileTimer() {
+        refreshNotificationStatus()
+        val sessionId = latestTimerState.activeSessionId ?: return
+        val deadline = latestTimerState.targetDeadlineTimestamp ?: return
+        if (deadline <= System.currentTimeMillis()) completeExpiredSession(sessionId)
+    }
+
+    private fun startTimer() {
+        val state = uiState.value
+        val remaining = if (state.isComplete) currentSessionDuration else state.remainingSeconds
+        val resuming = !state.isComplete && latestTimerState.activeSessionId != null
+        val sessionId = if (resuming) latestTimerState.activeSessionId!! else UUID.randomUUID().toString()
+        val duration = if (resuming) {
+            latestTimerState.activeSessionDurationSeconds ?: currentSessionDuration
+        } else {
+            currentSessionDuration
+        }
+        val companion = if (resuming) {
+            latestTimerState.activeSessionCompanion ?: state.selectedCompanion.id
+        } else {
+            state.selectedCompanion.id
+        }
+        val deadline = System.currentTimeMillis() + remaining * 1000
+        currentDeadlineTimestamp = deadline
+        _uiState.update {
+            it.copy(isRunning = true, isComplete = false, remainingSeconds = remaining)
+        }
+        ambientPlayer.play()
+        startTicker()
+        viewModelScope.launch {
+            repository.preferences.startTimer(sessionId, deadline, duration, companion)
+            alarmScheduler.schedule(sessionId, deadline)
+        }
+    }
+
+    private fun pauseTimer() {
+        val remaining = currentDeadlineTimestamp?.let(::secondsUntil) ?: uiState.value.remainingSeconds
         timerJob?.cancel()
-        timerJob = viewModelScope.launch {
-            while (_uiState.value.isRunning && _uiState.value.remainingSeconds > 0) {
-                delay(1000)
-                _uiState.update { current ->
-                    val nextRemaining = max(0L, current.remainingSeconds - 1)
-                    val elapsedMinutes = ((currentSessionDuration - nextRemaining) / 60).toInt()
+        timerJob = null
+        alarmScheduler.cancel()
+        ambientPlayer.stop()
+        currentDeadlineTimestamp = null
+        _uiState.update {
+            it.copy(isRunning = false, remainingSeconds = remaining)
+        }
+        viewModelScope.launch { repository.preferences.pauseTimer(remaining) }
+    }
 
-                    if (current.hapticsEnabled && elapsedMinutes > 0 && elapsedMinutes % 5 == 0 && elapsedMinutes != lastPulseMinute) {
-                        hapticsManager.pulseSoft()
-                        lastPulseMinute = elapsedMinutes
-                    }
+    private fun applyPersistedTimerState(prefs: TimerState) {
+        latestTimerState = prefs
+        val duration = durationOptions.getOrElse(prefs.durationIndex) { 1500L }
+        val companion = CompanionAnimal.fromRaw(prefs.selectedCompanion)
+        val cosmetic = Cosmetic.fromRaw(prefs.equippedCosmetic)
+        val sound = AmbientSound.fromId(prefs.selectedSound)
+        if (ambientPlayer.selectedSound != sound) ambientPlayer.setSelectedSound(sound)
 
-                    if (nextRemaining == 0L) {
-                        onTimerComplete()
-                        current.copy(remainingSeconds = 0L, isRunning = false, isComplete = true)
-                    } else {
-                        current.copy(remainingSeconds = nextRemaining)
-                    }
+        val deadline = prefs.targetDeadlineTimestamp
+        val activeSessionId = prefs.activeSessionId
+        val now = System.currentTimeMillis()
+        when {
+            deadline != null && activeSessionId != null && deadline > now -> {
+                currentDeadlineTimestamp = deadline
+                _uiState.update {
+                    it.copy(
+                        remainingSeconds = secondsUntil(deadline, now),
+                        isRunning = true,
+                        isComplete = false,
+                        durationIndex = prefs.durationIndex,
+                        selectedCompanion = companion,
+                        equippedCosmetic = cosmetic,
+                        hapticsEnabled = prefs.hapticsEnabled,
+                        selectedSound = sound,
+                        completionAlertsEnabled = notifications.canPostNotifications(),
+                        notificationPermissionRequested = prefs.notificationPermissionRequested
+                    )
+                }
+                ambientPlayer.play()
+                startTicker()
+            }
+            deadline != null && activeSessionId != null -> {
+                currentDeadlineTimestamp = deadline
+                _uiState.update {
+                    it.copy(remainingSeconds = 0, isRunning = false, isComplete = true)
+                }
+                completeExpiredSession(activeSessionId)
+            }
+            prefs.lastCompletedSessionId != null -> {
+                timerJob?.cancel()
+                timerJob = null
+                currentDeadlineTimestamp = null
+                ambientPlayer.stop()
+                _uiState.update {
+                    it.copy(
+                        remainingSeconds = 0,
+                        isRunning = false,
+                        isComplete = true,
+                        durationIndex = prefs.durationIndex,
+                        selectedCompanion = companion,
+                        equippedCosmetic = cosmetic,
+                        hapticsEnabled = prefs.hapticsEnabled,
+                        selectedSound = sound,
+                        completionAlertsEnabled = notifications.canPostNotifications(),
+                        notificationPermissionRequested = prefs.notificationPermissionRequested
+                    )
+                }
+                announceCompletionIfNeeded(prefs.lastCompletedSessionId)
+            }
+            else -> {
+                timerJob?.cancel()
+                timerJob = null
+                currentDeadlineTimestamp = null
+                ambientPlayer.stop()
+                _uiState.update {
+                    it.copy(
+                        remainingSeconds = prefs.pausedRemainingSeconds ?: duration,
+                        isRunning = false,
+                        isComplete = false,
+                        durationIndex = prefs.durationIndex,
+                        selectedCompanion = companion,
+                        equippedCosmetic = cosmetic,
+                        hapticsEnabled = prefs.hapticsEnabled,
+                        selectedSound = sound,
+                        completionAlertsEnabled = notifications.canPostNotifications(),
+                        notificationPermissionRequested = prefs.notificationPermissionRequested
+                    )
                 }
             }
         }
     }
 
-    private fun onTimerComplete() {
+    private fun startTicker() {
+        if (timerJob?.isActive == true) return
+        timerJob = viewModelScope.launch {
+            while (_uiState.value.isRunning) {
+                val deadline = currentDeadlineTimestamp ?: break
+                val remaining = secondsUntil(deadline)
+                if (remaining <= 0) {
+                    _uiState.update { it.copy(remainingSeconds = 0, isRunning = false, isComplete = true) }
+                    latestTimerState.activeSessionId?.let(::completeExpiredSession)
+                    break
+                }
+                val activeDuration = latestTimerState.activeSessionDurationSeconds ?: currentSessionDuration
+                val elapsedMinutes = FocusTimerMath.elapsedWholeMinutes(activeDuration, remaining)
+                if (_uiState.value.hapticsEnabled && elapsedMinutes > 0 &&
+                    elapsedMinutes % 5 == 0 && elapsedMinutes != lastPulseMinute
+                ) {
+                    hapticsManager.pulseSoft()
+                    lastPulseMinute = elapsedMinutes
+                }
+                _uiState.update { it.copy(remainingSeconds = remaining) }
+                delay(250)
+            }
+        }
+    }
+
+    private fun completeExpiredSession(sessionId: String) {
+        if (completionJob?.isActive == true) return
         ambientPlayer.stop()
-        shieldManager.disableShielding()
+        completionJob = viewModelScope.launch {
+            when (completionCoordinator.completeIfExpired(expectedSessionId = sessionId)) {
+                CompletionResult.COMPLETED,
+                CompletionResult.ALREADY_COMPLETED -> Unit
+                else -> Unit
+            }
+        }
+    }
+
+    private fun announceCompletionIfNeeded(sessionId: String) {
+        if (lastAnnouncedCompletionId == sessionId) return
+        lastAnnouncedCompletionId = sessionId
         meditationBell.play()
         hapticsManager.pulseSuccess()
-
-        viewModelScope.launch {
-            repository.completeSession(
-                durationSeconds = currentSessionDuration,
-                companionRaw = uiState.value.selectedCompanion.id
-            )
-            _uiState.update {
-                it.copy(
-                    isShielding = false,
-                    shieldStatusText = shieldManager.statusText,
-                    completionToastMessage = "+5 cozy coins — you did it"
-                )
-            }
+        toastJob?.cancel()
+        _uiState.update { it.copy(completionToastMessage = "+5 cozy coins — you did it") }
+        toastJob = viewModelScope.launch {
             delay(3000)
             _uiState.update { it.copy(completionToastMessage = null) }
         }
     }
 
+    private fun secondsUntil(
+        deadlineTimestamp: Long,
+        nowTimestamp: Long = System.currentTimeMillis()
+    ): Long {
+        return FocusTimerMath.remainingSeconds(deadlineTimestamp, nowTimestamp)
+    }
+
     override fun onCleared() {
-        super.onCleared()
         ambientPlayer.stop()
     }
 }

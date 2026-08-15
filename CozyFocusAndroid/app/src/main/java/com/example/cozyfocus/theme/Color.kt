@@ -1,4 +1,4 @@
-package com.example.cozyfocus.theme
+package com.cozyfocus.app.theme
 
 import androidx.compose.ui.graphics.Color
 

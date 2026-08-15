@@ -1,4 +1,4 @@
-package com.example.cozyfocus.theme
+package com.cozyfocus.app.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme

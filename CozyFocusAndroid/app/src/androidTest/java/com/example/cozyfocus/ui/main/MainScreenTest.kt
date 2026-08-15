@@ -1,26 +1,21 @@
-package com.example.cozyfocus.ui.main
+package com.cozyfocus.app.ui.main
 
-import androidx.activity.ComponentActivity
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
-import org.junit.Before
+import com.cozyfocus.app.MainActivity
 import org.junit.Rule
 import org.junit.Test
 
-/** UI tests for [com.example.cozyfocus.ui.main.MainScreen]. */
 class MainScreenTest {
+    @get:Rule
+    val composeTestRule = createAndroidComposeRule<MainActivity>()
 
-  @get:Rule val composeTestRule = createAndroidComposeRule<ComponentActivity>()
-
-  @Before
-  fun setup() {
-    composeTestRule.setContent { MainScreen(FAKE_DATA) }
-  }
-
-  @Test
-  fun firstItem_exists() {
-    FAKE_DATA.forEach { composeTestRule.onNodeWithText("Hello $it!").assertExists() }
-  }
+    @Test
+    fun focusScreenShowsCoreControls() {
+        composeTestRule.onNodeWithText("Focus").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Choose your time").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Journey").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Den").assertIsDisplayed()
+    }
 }
-
-private val FAKE_DATA = listOf("Sample1", "Sample2", "Sample3")

@@ -1,5 +1,10 @@
-package com.example.cozyfocus.ui.main
+package com.cozyfocus.app.ui.main
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -38,6 +43,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -48,20 +54,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.cozyfocus.audio.AmbientSound
-import com.example.cozyfocus.data.db.FocusSessionEntity
-import com.example.cozyfocus.model.CompanionAnimal
-import com.example.cozyfocus.model.Cosmetic
-import com.example.cozyfocus.ui.components.CompanionStage
+import com.cozyfocus.app.audio.AmbientSound
+import com.cozyfocus.app.data.db.FocusSessionEntity
+import com.cozyfocus.app.model.CompanionAnimal
+import com.cozyfocus.app.model.Cosmetic
+import com.cozyfocus.app.ui.components.CompanionStage
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
-import java.util.Locale
 
 @Composable
 fun MainScreen(
@@ -72,6 +82,36 @@ fun MainScreen(
     val inventory by viewModel.inventory.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) {
+        viewModel.refreshNotificationStatus()
+        viewModel.toggleTimer()
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        viewModel.reconcileTimer()
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) viewModel.reconcileTimer()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    val toggleTimerWithNotificationPermission = {
+        val needsPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED &&
+            !uiState.notificationPermissionRequested &&
+            !uiState.isRunning
+        if (needsPermission) {
+            viewModel.markNotificationPermissionRequested()
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            viewModel.toggleTimer()
+        }
+    }
 
     val completedToday = remember(sessions) {
         val calendar = Calendar.getInstance()
@@ -122,7 +162,11 @@ fun MainScreen(
                 .background(Color(0xFFF9F6F0))
         ) {
             when (selectedTab) {
-                0 -> FocusTabContent(uiState = uiState, viewModel = viewModel)
+                0 -> FocusTabContent(
+                    uiState = uiState,
+                    viewModel = viewModel,
+                    onToggleTimer = toggleTimerWithNotificationPermission
+                )
                 1 -> JourneyTabContent(
                     sessions = sessions,
                     completedTodayCount = completedToday.size,
@@ -177,7 +221,8 @@ fun MainScreen(
 @Composable
 private fun FocusTabContent(
     uiState: MainUiState,
-    viewModel: MainScreenViewModel
+    viewModel: MainScreenViewModel,
+    onToggleTimer: () -> Unit
 ) {
     val greeting = when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
         in 5..11 -> "Good morning"
@@ -187,7 +232,7 @@ private fun FocusTabContent(
 
     val minutes = (uiState.remainingSeconds / 60).toInt()
     val seconds = (uiState.remainingSeconds % 60).toInt()
-    val timeText = String.format("%02d:%02d", minutes, seconds)
+    val timeText = String.format(LocalLocale.current.platformLocale, "%02d:%02d", minutes, seconds)
 
     var soundMenuExpanded by remember { mutableStateOf(false) }
 
@@ -254,7 +299,7 @@ private fun FocusTabContent(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Button(
-                onClick = { viewModel.toggleTimer() },
+                onClick = onToggleTimer,
                 modifier = Modifier
                     .weight(1f)
                     .height(50.dp),
@@ -367,18 +412,26 @@ private fun FocusTabContent(
                 Text(text = if (uiState.hapticsEnabled) "📳 Haptics" else "🔇 Haptics", fontSize = 12.sp)
             }
 
-            // Distraction Shield Button
+            // Android exposes its own user-controlled Focus and Do Not Disturb settings.
             OutlinedButton(
-                onClick = { viewModel.toggleDistractionShielding() },
+                onClick = { viewModel.openSystemFocusSettings() },
                 modifier = Modifier.height(42.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    containerColor = if (uiState.isShielding) Color(0xFFFF9800).copy(alpha = 0.15f) else Color.Transparent
-                )
+                shape = RoundedCornerShape(12.dp)
             ) {
-                Text(text = if (uiState.isShielding) "🛡️ Paused" else "🛡️ Shield", fontSize = 12.sp)
+                Text(text = "⚙️ Focus", fontSize = 12.sp)
             }
         }
+
+        Text(
+            text = when {
+                uiState.completionAlertsEnabled -> "Completion alerts are enabled"
+                uiState.notificationPermissionRequested ->
+                    "Completion alerts are off; sessions still save when the timer ends"
+                else -> uiState.focusSettingsStatusText
+            },
+            fontSize = 11.sp,
+            color = Color.Gray
+        )
     }
 }
 
@@ -389,7 +442,10 @@ private fun JourneyTabContent(
     totalMinutes: Int,
     onShare: () -> Unit
 ) {
-    val dateFormat = remember { SimpleDateFormat("EEE, MMM d, HH:mm", Locale.getDefault()) }
+    val currentLocale = LocalLocale.current.platformLocale
+    val dateFormat = remember(currentLocale) {
+        SimpleDateFormat("EEE, MMM d, HH:mm", currentLocale)
+    }
 
     LazyColumn(
         modifier = Modifier

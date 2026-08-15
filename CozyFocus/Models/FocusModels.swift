@@ -79,8 +79,14 @@ final class FocusSession {
     var companionRaw: String
     var coinsEarned: Int
 
-    init(completedAt: Date = .now, duration: TimeInterval, companion: Companion, coinsEarned: Int = 5) {
-        self.id = UUID()
+    init(
+        id: UUID = UUID(),
+        completedAt: Date = .now,
+        duration: TimeInterval,
+        companion: Companion,
+        coinsEarned: Int = 5
+    ) {
+        self.id = id
         self.completedAt = completedAt
         self.duration = duration
         self.companionRaw = companion.rawValue

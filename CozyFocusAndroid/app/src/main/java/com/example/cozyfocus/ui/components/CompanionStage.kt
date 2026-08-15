@@ -1,4 +1,4 @@
-package com.example.cozyfocus.ui.components
+package com.cozyfocus.app.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -14,10 +14,14 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -26,10 +30,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.cozyfocus.model.CompanionAnimal
-import com.example.cozyfocus.model.Cosmetic
-import kotlinx.coroutines.android.awaitFrame
-import kotlin.math.sin
+import com.cozyfocus.app.model.CompanionAnimal
+import com.cozyfocus.app.model.Cosmetic
 
 @Composable
 fun CompanionStage(
@@ -81,16 +83,19 @@ private fun PortraitCard(
     cosmetic: Cosmetic?,
     isFocusing: Boolean
 ) {
-    val animationTime by produceState(0f) {
-        val startTime = System.currentTimeMillis()
-        while (true) {
-            awaitFrame()
-            value = (System.currentTimeMillis() - startTime) / 1000f
-        }
-    }
+    val transition = rememberInfiniteTransition(label = "companion motion")
+    val breathing by transition.animateFloat(
+        initialValue = -1f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2_400),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "breathing and drift"
+    )
 
-    val breathingScale = 1f + sin(animationTime * 1.5f) * 0.016f
-    val verticalDrift = (sin(animationTime * 0.7f) * 2.5f).dp
+    val breathingScale = 1f + breathing * 0.016f
+    val verticalDrift = (breathing * 2.5f).dp
 
     Column(
         modifier = Modifier.fillMaxWidth(),

@@ -1,7 +1,8 @@
-package com.example.cozyfocus.data.db
+package com.cozyfocus.app.data.db
 
 import android.content.Context
 import androidx.room.Database
+import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
@@ -11,7 +12,7 @@ import androidx.room.RoomDatabase
         CoinLedgerEntity::class
     ],
     version = 1,
-    exportSchema = false
+    exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun focusDao(): FocusDao
@@ -22,7 +23,11 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
-                val instance = AppDatabase_Impl()
+                val instance = Room.databaseBuilder(
+                    context.applicationContext,
+                    AppDatabase::class.java,
+                    "cozy-focus.db"
+                ).build()
                 INSTANCE = instance
                 instance
             }

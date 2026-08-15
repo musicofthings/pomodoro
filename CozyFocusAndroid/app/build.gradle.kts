@@ -1,24 +1,27 @@
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
-  alias(libs.plugins.kotlin.serialization)
+  alias(libs.plugins.ksp)
+  alias(libs.plugins.androidx.room)
 }
 
 android {
-    namespace = "com.example.cozyfocus"
-    compileSdk = 36
+    namespace = "com.cozyfocus.app"
+    compileSdk = 37
     defaultConfig {
-        applicationId = "com.example.cozyfocus"
+        applicationId = "com.cozyfocus.app"
         minSdk = 24
-        targetSdk = 36
+        targetSdk = 37
         versionCode = 1
         versionName = "1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            optimization {
+                enable = true
+            }
         }
     }
     compileOptions {
@@ -37,6 +40,10 @@ android {
         excludes += "/META-INF/{AL2.0,LGPL2.1}"
       }
     }
+}
+
+room {
+  schemaDirectory("$projectDir/schemas")
 }
 
 dependencies {
@@ -71,16 +78,14 @@ dependencies {
   androidTestImplementation(libs.androidx.test.runner)
   androidTestImplementation(libs.androidx.test.espresso.core)
 
-  // Navigation
-  implementation(libs.androidx.navigation3.ui)
-  implementation(libs.androidx.navigation3.runtime)
-  implementation(libs.androidx.lifecycle.viewmodel.navigation3)
-
   // Room Database
   implementation(libs.androidx.room.runtime)
   implementation(libs.androidx.room.ktx)
-  annotationProcessor(libs.androidx.room.compiler)
+  ksp(libs.androidx.room.compiler)
 
   // DataStore Preferences
   implementation(libs.androidx.datastore.preferences)
+
+  // Database instrumentation tests
+  androidTestImplementation(libs.androidx.room.testing)
 }

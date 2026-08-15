@@ -171,7 +171,7 @@ struct ContentView: View {
                             VStack(alignment: .leading) { Text(cosmetic.name).fontWeight(.semibold); Text(owned ? "Yours to wear" : "\(cosmetic.price) cozy coins").font(.caption).foregroundStyle(.secondary) }
                             Spacer()
                             if owned { Button(profile.equippedCosmetic == cosmetic ? "Wearing" : "Wear") { profile.equippedCosmetic = cosmetic }.buttonStyle(.bordered) }
-                            else { Button("Unlock") { profile.purchase(cosmetic, balance: coinBalance, context: modelContext) }.buttonStyle(.borderedProminent).tint(.orange).disabled(coinBalance < cosmetic.price) }
+                            else { Button("Unlock") { profile.purchase(cosmetic, context: modelContext) }.buttonStyle(.borderedProminent).tint(.orange).disabled(coinBalance < cosmetic.price) }
                         }
                     }
                 }
@@ -238,7 +238,7 @@ struct ContentView: View {
             ambient.stop()
             screenTime.endShielding()
         } else {
-            timer.start()
+            timer.start(companion: profile.selectedCompanion)
             ambient.play()
             if let endDate = timer.scheduledEndDate,
                !screenTime.selection.applicationTokens.isEmpty || !screenTime.selection.categoryTokens.isEmpty {
@@ -307,11 +307,29 @@ struct ContentView: View {
         screenTime.endShielding()
     }
 
-    private func finishSession() {
+    private func finishSession(_ completion: FocusTimer.Completion) -> Bool {
         ambient.stop()
         screenTime.endShielding()
-        let session = FocusSession(duration: timer.sessionDuration, companion: profile.selectedCompanion)
-        let reward = CoinLedgerEntry(amount: session.coinsEarned, reason: "Completed focus session")
+        let sessionID = completion.id
+        let sessionDescriptor = FetchDescriptor<FocusSession>(
+            predicate: #Predicate { $0.id == sessionID }
+        )
+        if let existing = try? modelContext.fetch(sessionDescriptor), !existing.isEmpty {
+            return true
+        }
+
+        let session = FocusSession(
+            id: completion.id,
+            completedAt: completion.completedAt,
+            duration: completion.duration,
+            companion: completion.companion
+        )
+        let reward = CoinLedgerEntry(
+            id: completion.id,
+            createdAt: completion.completedAt,
+            amount: session.coinsEarned,
+            reason: "Completed focus session"
+        )
         modelContext.insert(session)
         modelContext.insert(reward)
 
@@ -320,12 +338,13 @@ struct ContentView: View {
         } catch {
             modelContext.delete(session)
             modelContext.delete(reward)
-            return
+            return false
         }
 
         completionBell.play()
         withAnimation { completionMessage = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { withAnimation { completionMessage = false } }
+        return true
     }
 
     private func createShareCard() {

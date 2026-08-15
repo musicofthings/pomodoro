@@ -30,13 +30,17 @@ final class ProfileStore: ObservableObject {
     }
 
     @discardableResult
-    func purchase(_ cosmetic: Cosmetic, balance: Int, context: ModelContext) -> Bool {
+    func purchase(_ cosmetic: Cosmetic, context: ModelContext) -> Bool {
         let cosmeticRaw = cosmetic.rawValue
         let descriptor = FetchDescriptor<InventoryEntry>(
             predicate: #Predicate { $0.cosmeticRaw == cosmeticRaw }
         )
+        guard let ledger = try? context.fetch(FetchDescriptor<CoinLedgerEntry>()) else {
+            return false
+        }
+        let currentBalance = ledger.reduce(0) { $0 + $1.amount }
 
-        guard balance >= cosmetic.price,
+        guard currentBalance >= cosmetic.price,
               let matchingEntries = try? context.fetch(descriptor),
               matchingEntries.isEmpty else {
             return false

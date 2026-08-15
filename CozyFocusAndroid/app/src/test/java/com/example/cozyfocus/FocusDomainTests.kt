@@ -1,7 +1,8 @@
-package com.example.cozyfocus
+package com.cozyfocus.app
 
-import com.example.cozyfocus.model.CompanionAnimal
-import com.example.cozyfocus.model.Cosmetic
+import com.cozyfocus.app.model.CompanionAnimal
+import com.cozyfocus.app.model.Cosmetic
+import com.cozyfocus.app.timer.FocusTimerMath
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -38,5 +39,19 @@ class FocusDomainTests {
             assertNotNull(companion.symbol)
             assertEquals(true, companion.baseFrequencyHz > 100.0)
         }
+    }
+
+    @Test
+    fun timerRemaining_reconcilesAgainstDeadlineWithoutDrift() {
+        assertEquals(60L, FocusTimerMath.remainingSeconds(61_000, 1_001))
+        assertEquals(1L, FocusTimerMath.remainingSeconds(2_000, 1_001))
+        assertEquals(0L, FocusTimerMath.remainingSeconds(1_000, 1_001))
+    }
+
+    @Test
+    fun timerElapsedMinutes_usesPersistedSessionDuration() {
+        assertEquals(0, FocusTimerMath.elapsedWholeMinutes(1_500, 1_441))
+        assertEquals(1, FocusTimerMath.elapsedWholeMinutes(1_500, 1_440))
+        assertEquals(5, FocusTimerMath.elapsedWholeMinutes(1_500, 1_200))
     }
 }

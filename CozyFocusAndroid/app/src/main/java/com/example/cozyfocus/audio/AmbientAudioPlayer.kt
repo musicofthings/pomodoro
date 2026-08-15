@@ -1,9 +1,9 @@
-package com.example.cozyfocus.audio
+package com.cozyfocus.app.audio
 
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.MediaPlayer
-import com.example.cozyfocus.R
+import com.cozyfocus.app.R
 
 enum class AmbientSound(
     val id: String,

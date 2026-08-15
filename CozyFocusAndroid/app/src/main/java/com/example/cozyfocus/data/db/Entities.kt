@@ -1,4 +1,4 @@
-package com.example.cozyfocus.data.db
+package com.cozyfocus.app.data.db
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey

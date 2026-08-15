@@ -1,9 +1,9 @@
-package com.example.cozyfocus.audio
+package com.cozyfocus.app.audio
 
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
-import com.example.cozyfocus.model.CompanionAnimal
+import com.cozyfocus.app.model.CompanionAnimal
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.PI

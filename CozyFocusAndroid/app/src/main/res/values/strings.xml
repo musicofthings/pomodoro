@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">Cozy Focus</string>
+    <string name="completion_channel_name">Focus completion</string>
+    <string name="completion_channel_description">Alerts when a focus session finishes</string>
+    <string name="completion_notification_title">Your cozy focus is complete</string>
+    <string name="completion_notification_body">Take a gentle breath and come back when you’re ready.</string>
 </resources>

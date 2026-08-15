@@ -1,50 +1,49 @@
-package com.example.cozyfocus.data
+package com.cozyfocus.app.data
 
 import android.content.Context
-import com.example.cozyfocus.data.db.AppDatabase
-import com.example.cozyfocus.data.db.CoinLedgerEntity
-import com.example.cozyfocus.data.db.FocusSessionEntity
-import com.example.cozyfocus.data.db.InventoryEntryEntity
-import com.example.cozyfocus.data.preferences.TimerPreferences
-import com.example.cozyfocus.data.preferences.TimerState
+import com.cozyfocus.app.data.db.AppDatabase
+import com.cozyfocus.app.data.db.CoinLedgerEntity
+import com.cozyfocus.app.data.db.FocusSessionEntity
+import com.cozyfocus.app.data.db.InventoryEntryEntity
+import com.cozyfocus.app.data.preferences.TimerPreferences
+import com.cozyfocus.app.data.preferences.TimerState
 import kotlinx.coroutines.flow.Flow
 
-class DataRepository(context: Context) {
-    private val db = AppDatabase.getInstance(context)
+class DataRepository(
+    context: Context,
+    private val db: AppDatabase = AppDatabase.getInstance(context),
+    val preferences: TimerPreferences = TimerPreferences(context)
+) {
     private val dao = db.focusDao()
-    val preferences = TimerPreferences(context)
 
     val timerState: Flow<TimerState> = preferences.timerStateFlow
     val sessions: Flow<List<FocusSessionEntity>> = dao.getAllSessions()
     val inventory: Flow<List<InventoryEntryEntity>> = dao.getInventory()
     val coinLedger: Flow<List<CoinLedgerEntity>> = dao.getCoinLedger()
 
-    suspend fun completeSession(durationSeconds: Long, companionRaw: String) {
+    suspend fun completeSessionIfNeeded(
+        sessionId: String,
+        durationSeconds: Long,
+        companionRaw: String,
+        completedAt: Long
+    ): Boolean {
         val session = FocusSessionEntity(
+            id = sessionId,
+            completedAt = completedAt,
             durationSeconds = durationSeconds,
             companionRaw = companionRaw,
             coinsEarned = 5
         )
-        dao.insertSession(session)
-        dao.insertCoinLedgerEntry(
-            CoinLedgerEntity(
-                amount = session.coinsEarned,
-                reason = "Completed focus session"
-            )
-        )
-        preferences.resetTimer()
+        return dao.completeSessionIfNeeded(session)
     }
 
-    suspend fun purchaseCosmetic(cosmeticRaw: String, price: Int, currentBalance: Int): Boolean {
-        if (currentBalance < price) return false
-        if (dao.getInventoryEntry(cosmeticRaw) != null) return false
-
-        val inventoryEntry = InventoryEntryEntity(cosmeticRaw = cosmeticRaw)
-        val debitEntry = CoinLedgerEntity(amount = -price, reason = "Purchased $cosmeticRaw")
-
-        dao.insertInventoryEntry(inventoryEntry)
-        dao.insertCoinLedgerEntry(debitEntry)
-        preferences.setEquippedCosmetic(cosmeticRaw)
-        return true
+    suspend fun purchaseCosmetic(cosmeticRaw: String, price: Int): Boolean {
+        val purchased = dao.purchaseCosmeticIfAffordable(
+            cosmeticRaw = cosmeticRaw,
+            price = price,
+            acquiredAt = System.currentTimeMillis()
+        )
+        if (purchased) preferences.setEquippedCosmetic(cosmeticRaw)
+        return purchased
     }
 }

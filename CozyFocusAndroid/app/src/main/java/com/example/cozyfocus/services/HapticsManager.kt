@@ -1,4 +1,4 @@
-package com.example.cozyfocus.services
+package com.cozyfocus.app.services
 
 import android.content.Context
 import android.os.Build

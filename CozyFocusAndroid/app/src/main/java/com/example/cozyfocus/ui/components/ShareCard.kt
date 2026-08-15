@@ -1,4 +1,4 @@
-package com.example.cozyfocus.ui.components
+package com.cozyfocus.app.ui.components
 
 import android.content.Context
 import android.content.Intent
@@ -9,8 +9,9 @@ import android.graphics.Paint
 import android.graphics.Shader
 import android.graphics.Typeface
 import androidx.core.content.FileProvider
-import com.example.cozyfocus.model.CompanionAnimal
-import com.example.cozyfocus.model.Cosmetic
+import androidx.core.graphics.createBitmap
+import com.cozyfocus.app.model.CompanionAnimal
+import com.cozyfocus.app.model.Cosmetic
 import java.io.File
 import java.io.FileOutputStream
 
@@ -60,7 +61,7 @@ object ShareCardGenerator {
     ): Bitmap {
         val width = 1920
         val height = 1080
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val bitmap = createBitmap(width, height)
         val canvas = Canvas(bitmap)
 
         // Gradient Background

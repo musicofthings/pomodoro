@@ -43,7 +43,9 @@ struct ContentView: View {
                 .tabItem { Label("Den", systemImage: "pawprint.fill") }
         }
         .tint(.orange)
-        .background(Color(.systemGroupedBackground))
+        .background { FocusThemeBackdrop() }
+        .toolbarBackground(.ultraThinMaterial, for: .tabBar)
+        .toolbarBackground(.visible, for: .tabBar)
         .sheet(isPresented: $showCompanions) { companionPicker }
         .sheet(isPresented: $showShieldPicker) { shieldPicker }
         .sheet(isPresented: $showShareSheet) {
@@ -74,7 +76,7 @@ struct ContentView: View {
                             .font(.subheadline.weight(.bold))
                             .foregroundStyle(.orange)
                             .padding(.horizontal, 10).padding(.vertical, 7)
-                            .background(.orange.opacity(0.1), in: Capsule())
+                            .glassSurface(cornerRadius: 16, tint: .orange, shadowRadius: 7)
                     }
 
                     CompanionStage(
@@ -85,6 +87,8 @@ struct ContentView: View {
                     ) { selected in
                         animalSounds.playSelection(for: selected)
                     }
+                    .padding(.horizontal, 5)
+                    .glassSurface(cornerRadius: 30, tint: profile.selectedCompanion.accent)
 
                     VStack(spacing: 0) {
                         Text(timer.isComplete ? "Lovely work" : timer.isRunning ? "Focus gently" : "A \(timer.durationAdjective) moment")
@@ -94,17 +98,20 @@ struct ContentView: View {
                             .contentTransition(.numericText())
                             .animation(.snappy, value: timer.timeText)
                     }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, isCompact ? 5 : 7)
+                    .glassSurface(cornerRadius: 22, tint: .orange, shadowRadius: 10)
 
                     HStack(spacing: 10) {
                         Button(action: toggleFocus) {
                             Label(primaryButtonLabel, systemImage: timer.isRunning ? "pause.fill" : "play.fill")
                                 .frame(maxWidth: .infinity).padding(.vertical, 14)
                         }
-                        .buttonStyle(.borderedProminent).tint(.orange)
+                        .buttonStyle(GlassActionButtonStyle(tint: .orange, isProminent: true))
                         Button(role: .destructive, action: stopFocus) {
                             Image(systemName: "stop.fill").frame(width: 24, height: 24).padding(11)
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(GlassActionButtonStyle(tint: .red))
                         .disabled(!canStop)
                         .accessibilityLabel("Stop and reset")
                     }
@@ -118,6 +125,7 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
             .navigationBarHidden(true)
+            .background { FocusThemeBackdrop() }
             .overlay(alignment: .top) {
                 if completionMessage {
                     Label("+5 cozy coins — you did it", systemImage: "sparkles")
@@ -154,6 +162,8 @@ struct ContentView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background { FocusThemeBackdrop() }
             .navigationTitle("Journey")
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { createShareCard() } label: { Label("Share", systemImage: "square.and.arrow.up") } } }
         }
@@ -176,6 +186,8 @@ struct ContentView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background { FocusThemeBackdrop() }
             .navigationTitle("The Den")
         }
     }
@@ -269,7 +281,7 @@ struct ContentView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(.background, in: RoundedRectangle(cornerRadius: 16))
+        .glassSurface(cornerRadius: 20, tint: .orange, shadowRadius: 10)
     }
 
     private var focusControls: some View {
@@ -283,19 +295,23 @@ struct ContentView: View {
             } label: {
                 Label(ambient.selectedSound.label, systemImage: ambient.selectedSound.icon)
                     .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(GlassActionButtonStyle(tint: .orange))
 
             Toggle(isOn: $timer.hapticsEnabled) { Image(systemName: "waveform.path") }
                 .labelsHidden()
                 .toggleStyle(.button)
+                .padding(5)
+                .glassSurface(cornerRadius: 15, tint: .orange, shadowRadius: 6)
                 .accessibilityLabel("Gentle haptics")
 
             Button { showShieldPicker = true } label: {
                 Image(systemName: screenTime.isShielding ? "lock.shield.fill" : "lock.shield")
                     .frame(width: 24, height: 24)
+                    .padding(8)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(GlassActionButtonStyle(tint: .orange))
             .accessibilityLabel("Pause distractions")
         }
         .controlSize(.small)

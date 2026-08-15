@@ -26,6 +26,7 @@
 		200000000000000000000105 /* ManagedSettings.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 100000000000000000000022 /* ManagedSettings.framework */; };
 		200000000000000000000106 /* CozyFocusShieldMonitor.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 200000000000000000000005 /* CozyFocusShieldMonitor.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		300000000000000000000101 /* FocusPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 300000000000000000000001 /* FocusPersistenceTests.swift */; };
+		400000000000000000000101 /* ThemeSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = 400000000000000000000001 /* ThemeSurface.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -60,6 +61,7 @@
 		200000000000000000000006 /* DeviceActivity.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = DeviceActivity.framework; path = System/Library/Frameworks/DeviceActivity.framework; sourceTree = SDKROOT; };
 		300000000000000000000001 /* FocusPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusPersistenceTests.swift; sourceTree = "<group>"; };
 		300000000000000000000005 /* CozyFocusTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CozyFocusTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		400000000000000000000001 /* ThemeSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeSurface.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -102,7 +104,7 @@
 		100000000000000000000034 /* App */ = {isa = PBXGroup; children = (100000000000000000000001 /* CozyFocusApp.swift */,); path = App; sourceTree = "<group>"; };
 		100000000000000000000035 /* Models */ = {isa = PBXGroup; children = (100000000000000000000002 /* FocusModels.swift */,); path = Models; sourceTree = "<group>"; };
 		100000000000000000000036 /* Services */ = {isa = PBXGroup; children = (100000000000000000000003 /* ProfileStore.swift */, 100000000000000000000004 /* FocusTimer.swift */, 100000000000000000000005 /* AmbientAudioPlayer.swift */, 100000000000000000000006 /* ScreenTimeManager.swift */,); path = Services; sourceTree = "<group>"; };
-		100000000000000000000037 /* Views */ = {isa = PBXGroup; children = (100000000000000000000007 /* CompanionStage.swift */, 100000000000000000000008 /* ShareCard.swift */, 100000000000000000000009 /* ContentView.swift */,); path = Views; sourceTree = "<group>"; };
+		100000000000000000000037 /* Views */ = {isa = PBXGroup; children = (100000000000000000000007 /* CompanionStage.swift */, 100000000000000000000008 /* ShareCard.swift */, 100000000000000000000009 /* ContentView.swift */, 400000000000000000000001 /* ThemeSurface.swift */,); path = Views; sourceTree = "<group>"; };
 		200000000000000000000030 /* CozyFocusShieldMonitor */ = {isa = PBXGroup; children = (200000000000000000000002 /* DeviceActivityMonitorExtension.swift */, 200000000000000000000003 /* Info.plist */, 200000000000000000000004 /* CozyFocusShieldMonitor.entitlements */,); path = CozyFocusShieldMonitor; sourceTree = "<group>"; };
 		300000000000000000000030 /* CozyFocusTests */ = {isa = PBXGroup; children = (300000000000000000000001 /* FocusPersistenceTests.swift */,); path = CozyFocusTests; sourceTree = "<group>"; };
 /* End PBXGroup section */
@@ -130,7 +132,7 @@
 
 /* Begin PBXSourcesBuildPhase section */
 		100000000000000000000041 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (
-			100000000000000000000101, 100000000000000000000102, 100000000000000000000103, 100000000000000000000104, 100000000000000000000105, 100000000000000000000106, 100000000000000000000107, 100000000000000000000108, 100000000000000000000109,
+			100000000000000000000101, 100000000000000000000102, 100000000000000000000103, 100000000000000000000104, 100000000000000000000105, 100000000000000000000106, 100000000000000000000107, 100000000000000000000108, 100000000000000000000109, 400000000000000000000101,
 		); runOnlyForDeploymentPostprocessing = 0; };
 		200000000000000000000041 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (200000000000000000000103 /* DeviceActivityMonitorExtension.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
 		300000000000000000000041 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (300000000000000000000101 /* FocusPersistenceTests.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };

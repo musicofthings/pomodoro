@@ -159,4 +159,36 @@ final class FocusPersistenceTests: XCTestCase {
         XCTAssertEqual(attempts, 2)
         XCTAssertNil(defaults.object(forKey: "timer.endDate"))
     }
+
+    @MainActor
+    func testAudioSessionRemainsActiveUntilLastOwnerEnds() throws {
+        var transitions: [Bool] = []
+        let coordinator = AudioSessionActivityCoordinator(
+            activate: { transitions.append(true) },
+            deactivate: { transitions.append(false) }
+        )
+        let ambientOwner = NSObject()
+        let greetingOwner = NSObject()
+
+        try coordinator.begin(owner: ambientOwner)
+        try coordinator.begin(owner: greetingOwner)
+        coordinator.end(owner: greetingOwner)
+
+        XCTAssertEqual(transitions, [true])
+
+        coordinator.end(owner: ambientOwner)
+
+        XCTAssertEqual(transitions, [true, false])
+    }
+
+    @MainActor
+    func testAmbientAudioUsesAContinuousRenderingLoop() async throws {
+        let player = AmbientAudioPlayer()
+        player.play()
+        defer { player.stop() }
+
+        XCTAssertTrue(player.isRenderingAudio)
+        try await Task.sleep(for: .seconds(31))
+        XCTAssertTrue(player.isRenderingAudio)
+    }
 }

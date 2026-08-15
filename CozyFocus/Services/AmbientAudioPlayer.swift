@@ -1,5 +1,46 @@
 import AVFoundation
 
+@MainActor
+final class AudioSessionActivityCoordinator {
+    static let shared = AudioSessionActivityCoordinator(
+        activate: {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.ambient, mode: .default)
+            try session.setActive(true)
+        },
+        deactivate: {
+            try? AVAudioSession.sharedInstance().setActive(
+                false,
+                options: .notifyOthersOnDeactivation
+            )
+        }
+    )
+
+    private let activate: () throws -> Void
+    private let deactivate: () -> Void
+    private var owners: Set<ObjectIdentifier> = []
+
+    init(
+        activate: @escaping () throws -> Void,
+        deactivate: @escaping () -> Void
+    ) {
+        self.activate = activate
+        self.deactivate = deactivate
+    }
+
+    func begin(owner: AnyObject) throws {
+        let identifier = ObjectIdentifier(owner)
+        guard !owners.contains(identifier) else { return }
+        if owners.isEmpty { try activate() }
+        owners.insert(identifier)
+    }
+
+    func end(owner: AnyObject) {
+        guard owners.remove(ObjectIdentifier(owner)) != nil else { return }
+        if owners.isEmpty { deactivate() }
+    }
+}
+
 enum AmbientSound: String, CaseIterable, Identifiable {
     case blackNoise = "black_noise"
     case waterfall
@@ -56,7 +97,15 @@ final class AmbientAudioPlayer: ObservableObject {
     @Published var selectedSound: AmbientSound = .rainfall
     @Published private(set) var isPlaying = false
 
-    private var player: AVAudioPlayer?
+    private let engine = AVAudioEngine()
+    private let playerNode = AVAudioPlayerNode()
+    private var hasAttachedPlayer = false
+    private var activeBuffer: AVAudioPCMBuffer?
+    private let audioSession = AudioSessionActivityCoordinator.shared
+
+    var isRenderingAudio: Bool {
+        isPlaying && engine.isRunning && playerNode.isPlaying
+    }
 
     func toggle() {
         isPlaying ? stop() : play()
@@ -66,24 +115,46 @@ final class AmbientAudioPlayer: ObservableObject {
         guard !isPlaying else { return }
         guard let url = Bundle.main.url(forResource: selectedSound.rawValue, withExtension: "m4a", subdirectory: "Sounds") else { return }
         do {
-            try AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default)
-            try AVAudioSession.sharedInstance().setActive(true)
-            let audioPlayer = try AVAudioPlayer(contentsOf: url)
-            audioPlayer.numberOfLoops = -1
-            audioPlayer.volume = 0.45
-            audioPlayer.prepareToPlay()
-            isPlaying = audioPlayer.play()
-            player = audioPlayer
+            let file = try AVAudioFile(forReading: url)
+            guard file.length > 0,
+                  file.length <= AVAudioFramePosition(UInt32.max),
+                  let buffer = AVAudioPCMBuffer(
+                      pcmFormat: file.processingFormat,
+                      frameCapacity: AVAudioFrameCount(file.length)
+                  ) else { return }
+            try file.read(into: buffer)
+
+            if !hasAttachedPlayer {
+                engine.attach(playerNode)
+                hasAttachedPlayer = true
+            } else {
+                engine.disconnectNodeOutput(playerNode)
+            }
+            engine.connect(playerNode, to: engine.mainMixerNode, format: file.processingFormat)
+
+            try audioSession.begin(owner: self)
+            activeBuffer = buffer
+            playerNode.volume = 1
+            playerNode.scheduleBuffer(buffer, at: nil, options: .loops)
+            engine.prepare()
+            try engine.start()
+            playerNode.play()
+            isPlaying = playerNode.isPlaying
         } catch {
-            player = nil
+            playerNode.stop()
+            engine.stop()
+            activeBuffer = nil
+            isPlaying = false
+            audioSession.end(owner: self)
         }
     }
 
     func stop() {
-        player?.stop()
-        player = nil
+        playerNode.stop()
+        engine.stop()
+        activeBuffer = nil
         isPlaying = false
-        try? AVAudioSession.sharedInstance().setActive(false)
+        audioSession.end(owner: self)
     }
 }
 
@@ -116,6 +187,7 @@ final class AnimalSoundPlayer: ObservableObject {
     private var hasAttachedPlayer = false
     private var activeBuffer: AVAudioPCMBuffer?
     private var playbackGeneration = 0
+    private let audioSession = AudioSessionActivityCoordinator.shared
 
     func playSelection(for companion: Companion) {
         let format = engine.mainMixerNode.outputFormat(forBus: 0)
@@ -129,8 +201,7 @@ final class AnimalSoundPlayer: ObservableObject {
             hasAttachedPlayer = true
         }
         do {
-            try AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default)
-            try AVAudioSession.sharedInstance().setActive(true)
+            try audioSession.begin(owner: self)
             playerNode.stop()
             if !engine.isRunning { try engine.start() }
             playerNode.scheduleBuffer(buffer, at: nil, options: [], completionCallbackType: .dataPlayedBack) { [weak self] _ in
@@ -149,7 +220,7 @@ final class AnimalSoundPlayer: ObservableObject {
         playerNode.stop()
         engine.stop()
         activeBuffer = nil
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        audioSession.end(owner: self)
     }
 
     private func makeGreeting(format: AVAudioFormat, companion: Companion) -> AVAudioPCMBuffer? {
